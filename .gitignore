@@ -1,0 +1,23 @@
+# Secrets — never commit
+**/.env
+**/*.key
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Flutter build artifacts
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+
+# Node / backend
+**/node_modules/
+**/*.log
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store

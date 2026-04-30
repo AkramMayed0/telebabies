@@ -1,0 +1,246 @@
+/* teleBabies — brand system */
+
+@import url('https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Cairo:wght@400;600;700;800;900&display=swap');
+
+:root {
+  /* Brand palette — bright, joyful, saturated */
+  --tb-yellow: #FFD23F;       /* primary sunshine */
+  --tb-yellow-deep: #F4B400;
+  --tb-pink: #FF4D8D;          /* hot pink */
+  --tb-pink-soft: #FFC2D8;
+  --tb-mint: #2BD9A6;          /* mint green */
+  --tb-mint-soft: #BFF5E3;
+  --tb-blue: #3B6BFF;          /* electric blue */
+  --tb-blue-soft: #C8D6FF;
+  --tb-purple: #8B5CF6;
+  --tb-coral: #FF6B4A;
+  --tb-cream: #FFF7E8;         /* warm cream backdrop */
+  --tb-ink: #1A1530;           /* deep eggplant ink (not black) */
+  --tb-ink-2: #4A4566;
+  --tb-ink-3: #8A85A8;
+  --tb-line: #E8E3D5;
+  --tb-bg: #FAF6EC;            /* page bg */
+  --tb-card: #FFFFFF;
+
+  /* The "accent" — replaced by tweak */
+  --tb-accent: var(--tb-pink);
+  --tb-accent-soft: var(--tb-pink-soft);
+  --tb-accent-ink: #FFFFFF;
+
+  /* Type scale */
+  --tb-font-display: 'Funnel Display', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --tb-font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --tb-font-ar: 'IBM Plex Sans Arabic', 'Cairo', system-ui, sans-serif;
+
+  --tb-radius-sm: 10px;
+  --tb-radius: 18px;
+  --tb-radius-lg: 28px;
+  --tb-radius-xl: 36px;
+
+  /* Card style — replaced by tweak (flat / shadow / border) */
+  --tb-card-shadow: 0 6px 24px rgba(26, 21, 48, 0.08);
+  --tb-card-border: 1px solid transparent;
+}
+
+[data-card-style="flat"] {
+  --tb-card-shadow: none;
+  --tb-card-border: 1px solid transparent;
+}
+[data-card-style="shadow"] {
+  --tb-card-shadow: 0 8px 28px rgba(26, 21, 48, 0.10);
+  --tb-card-border: 1px solid transparent;
+}
+[data-card-style="border"] {
+  --tb-card-shadow: none;
+  --tb-card-border: 1.5px solid var(--tb-ink);
+}
+
+/* Dark mode */
+[data-theme="dark"] {
+  --tb-cream: #1F1A36;
+  --tb-bg: #14102A;
+  --tb-card: #251F42;
+  --tb-ink: #FFF7E8;
+  --tb-ink-2: #C9C2E0;
+  --tb-ink-3: #8C84B5;
+  --tb-line: #3A2F58;
+  --tb-card-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"][data-card-style="border"] {
+  --tb-card-border: 1.5px solid var(--tb-line);
+}
+
+/* RTL helpers */
+[dir="rtl"] {
+  font-family: var(--tb-font-ar);
+}
+[dir="ltr"] {
+  font-family: var(--tb-font-body);
+}
+
+/* Reset within frames */
+.tb-app * {
+  box-sizing: border-box;
+}
+.tb-app {
+  background: var(--tb-bg);
+  color: var(--tb-ink);
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.tb-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.tb-scroll::-webkit-scrollbar { width: 4px; }
+.tb-scroll::-webkit-scrollbar-thumb { background: var(--tb-ink-3); border-radius: 4px; }
+
+/* Display type */
+.tb-display {
+  font-family: var(--tb-font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+[dir="rtl"] .tb-display {
+  font-family: var(--tb-font-ar);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* Buttons */
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 14px 22px;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.tb-btn:active { transform: scale(0.97); }
+.tb-btn-primary {
+  background: var(--tb-ink);
+  color: var(--tb-cream);
+}
+.tb-btn-accent {
+  background: var(--tb-accent);
+  color: var(--tb-accent-ink);
+}
+.tb-btn-ghost {
+  background: transparent;
+  color: var(--tb-ink);
+  border: 1.5px solid var(--tb-ink);
+}
+.tb-btn-soft {
+  background: var(--tb-card);
+  color: var(--tb-ink);
+}
+
+/* Pills / chips */
+.tb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--tb-card);
+  color: var(--tb-ink);
+  border: 1px solid var(--tb-line);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.tb-chip[data-active="true"] {
+  background: var(--tb-ink);
+  color: var(--tb-cream);
+  border-color: var(--tb-ink);
+}
+
+/* Card */
+.tb-card {
+  background: var(--tb-card);
+  border-radius: var(--tb-radius);
+  box-shadow: var(--tb-card-shadow);
+  border: var(--tb-card-border);
+}
+
+/* Tags */
+.tb-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Status dots */
+.tb-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+
+/* Input */
+.tb-input {
+  width: 100%;
+  background: var(--tb-card);
+  border: 1.5px solid var(--tb-line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--tb-ink);
+  outline: none;
+  transition: border 0.15s ease;
+}
+.tb-input:focus {
+  border-color: var(--tb-accent);
+}
+
+/* Subtle scribble background pattern */
+.tb-confetti {
+  background-image:
+    radial-gradient(circle at 12% 18%, var(--tb-yellow) 3px, transparent 4px),
+    radial-gradient(circle at 78% 42%, var(--tb-pink) 4px, transparent 5px),
+    radial-gradient(circle at 32% 78%, var(--tb-mint) 3px, transparent 4px),
+    radial-gradient(circle at 88% 88%, var(--tb-blue) 3px, transparent 4px),
+    radial-gradient(circle at 55% 12%, var(--tb-purple) 2px, transparent 3px);
+}
+
+/* Number pad */
+.tb-num { font-variant-numeric: tabular-nums; }
+
+/* Animations */
+@keyframes tb-pop {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.tb-pop { animation: tb-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes tb-spin { to { transform: rotate(360deg); } }
+.tb-spin { animation: tb-spin 1.5s linear infinite; }
+
+@keyframes tb-bob {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-4px) rotate(3deg); }
+}
+
+/* Hide scrollbar utility */
+.tb-no-scrollbar::-webkit-scrollbar { display: none; }
+.tb-no-scrollbar { scrollbar-width: none; }
