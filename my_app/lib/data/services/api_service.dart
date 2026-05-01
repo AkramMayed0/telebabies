@@ -13,31 +13,31 @@ class ApiService {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-Future<void> register({
-  required String name,
-  required String email,
-  String? phone,
-  required String password,
-}) async {
-  try {
-    await _dio.post('/auth/register', data: {
-      'name': name,
-      'email': email,
-      if (phone != null) 'phone': phone,
-      'password': password,
-    });
-  } on DioException catch (e) {
-    final status = e.response?.statusCode;
-    final msg = e.response?.data?['message'] ?? e.response?.data?['error'];
-    throw switch (status) {
-      409 => 'هذا الحساب مسجل مسبقًا، يرجى تسجيل الدخول',
-      422 => 'تنسيق البريد الإلكتروني أو رقم الهاتف غير صحيح',
-      429 => 'لقد تجاوزت عدد المحاولات، يرجى الانتظار قليلًا',
-      500 => 'الخادم غير متاح حاليًا، يرجى المحاولة لاحقًا',
-      _ => (msg is String && msg.isNotEmpty) ? msg : 'حدث خطأ، يرجى المحاولة مجددًا',
-    };
+  Future<void> register({
+    required String name,
+    required String email,
+    String? phone,
+    required String password,
+  }) async {
+    try {
+      await _dio.post('/auth/register', data: {
+        'name': name,
+        'email': email,
+        if (phone != null) 'phone': phone,
+        'password': password,
+      });
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final msg = e.response?.data?['message'] ?? e.response?.data?['error'];
+      throw switch (status) {
+        409 => 'هذا الحساب مسجل مسبقًا، يرجى تسجيل الدخول',
+        422 => 'تنسيق البريد الإلكتروني أو رقم الهاتف غير صحيح',
+        429 => 'لقد تجاوزت عدد المحاولات، يرجى الانتظار قليلًا',
+        500 => 'الخادم غير متاح حاليًا، يرجى المحاولة لاحقًا',
+        _ => (msg is String && msg.isNotEmpty) ? msg : 'حدث خطأ، يرجى المحاولة مجددًا',
+      };
+    }
   }
-}
 
   Future<Map<String, dynamic>> login({
     required String identifier,
