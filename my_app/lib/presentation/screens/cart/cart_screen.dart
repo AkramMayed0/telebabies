@@ -9,11 +9,12 @@ import 'package:go_router/go_router.dart';
 import 'package:my_app/core/utils/format.dart';
 import 'package:my_app/models/cart_item.dart';
 import 'package:my_app/presentation/providers/cart_provider.dart';
+import 'package:my_app/presentation/providers/promo_provider.dart';
 import 'package:my_app/presentation/widgets/common/AppButton.dart';
 import 'package:my_app/theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cart Screen
+// Cart Screen root
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CartScreen extends ConsumerWidget {
@@ -27,9 +28,7 @@ class CartScreen extends ConsumerWidget {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: TbColors.bg,
-        body: cart.isEmpty
-            ? const _EmptyCart()
-            : _CartBody(cart: cart),
+        body: cart.isEmpty ? const _EmptyCart() : const _CartBody(),
       ),
     );
   }
@@ -47,10 +46,7 @@ class _EmptyCart extends StatelessWidget {
     return SafeArea(
       child: Column(
         children: [
-          // Header
           const _CartHeader(itemCount: 0),
-
-          // Body
           Expanded(
             child: Center(
               child: Padding(
@@ -58,7 +54,6 @@ class _EmptyCart extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Icon circle
                     Container(
                       width: 120,
                       height: 120,
@@ -78,7 +73,6 @@ class _EmptyCart extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 22),
-
                     const Text(
                       'سلتك فارغة',
                       style: TextStyle(
@@ -89,7 +83,6 @@ class _EmptyCart extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-
                     const Text(
                       'تصفح أحدث القطع وأضفها إلى سلتك',
                       textAlign: TextAlign.center,
@@ -101,7 +94,6 @@ class _EmptyCart extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 28),
-
                     AppButton(
                       label: 'تصفح المنتجات',
                       variant: AppButtonVariant.primary,
@@ -124,62 +116,147 @@ class _EmptyCart extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cart body — list + summary + checkout
+// Cart body — owns TextEditingController + all interaction logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _CartBody extends ConsumerWidget {
-  final CartState cart;
-  const _CartBody({required this.cart});
+class _CartBody extends ConsumerStatefulWidget {
+  const _CartBody();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CartBody> createState() => _CartBodyState();
+}
+
+class _CartBodyState extends ConsumerState<_CartBody> {
+  final _promoController = TextEditingController();
+
+  // Flat shipping — single source of truth shared with summary + checkout bar
+  static const int _shipping = 1500;
+
+  @override
+  void dispose() {
+    _promoController.dispose();
+    super.dispose();
+  }
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+
+  int _grandTotal(int subtotal, int discount) =>
+      (subtotal - discount + _shipping).clamp(0, 999999999);
+
+  // ── Promo actions ─────────────────────────────────────────────────────────
+
+  void _applyPromo(int subtotal) {
+    final code = _promoController.text.trim();
+    if (code.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    ref.read(promoProvider.notifier).apply(code: code, subtotal: subtotal);
+  }
+
+  void _removePromo() {
+    _promoController.clear();
+    ref.read(promoProvider.notifier).clear();
+  }
+
+  // ── Re-validate promo when cart changes ───────────────────────────────────
+
+  void _revalidatePromo(PromoState promo, int newSubtotal) {
+    if (!promo.isApplied) return;
+    if (newSubtotal == 0) {
+      _removePromo();
+    } else {
+      ref.read(promoProvider.notifier).apply(
+            code: promo.result!.code,
+            subtotal: newSubtotal,
+          );
+    }
+  }
+
+  // ── Clear cart ────────────────────────────────────────────────────────────
+
+  void _confirmClear() {
+    showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ClearConfirmSheet(),
+    ).then((confirmed) {
+      if (confirmed == true && mounted) {
+        ref.read(cartProvider.notifier).clearCart();
+        _removePromo();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cart  = ref.watch(cartProvider);
+    final promo = ref.watch(promoProvider);
+
+    final discount   = promo.discountAmount;
+    final grandTotal = _grandTotal(cart.subtotal, discount);
+
     return SafeArea(
       child: Column(
         children: [
           // ── Header ─────────────────────────────────────────────────────
           _CartHeader(itemCount: cart.items.length),
 
-          // ── Scrollable items + summary ──────────────────────────────────
+          // ── Scrollable content ──────────────────────────────────────────
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                // Items list
+                // Item tiles
                 ...cart.items.map(
                   (item) => _CartItemTile(
                     key: ValueKey('${item.productId}_${item.size}'),
                     item: item,
-                    onIncrement: () => ref
-                        .read(cartProvider.notifier)
-                        .updateQuantity(
-                          item.productId,
-                          item.size,
-                          item.quantity + 1,
-                        ),
-                    onDecrement: () => ref
-                        .read(cartProvider.notifier)
-                        .updateQuantity(
-                          item.productId,
-                          item.size,
-                          item.quantity - 1,
-                        ),
-                    onRemove: () => ref
-                        .read(cartProvider.notifier)
-                        .removeItem(item.productId, item.size),
+                    onIncrement: () {
+                      ref.read(cartProvider.notifier).updateQuantity(
+                          item.productId, item.size, item.quantity + 1);
+                      _revalidatePromo(
+                          promo, ref.read(cartProvider).subtotal);
+                    },
+                    onDecrement: () {
+                      ref.read(cartProvider.notifier).updateQuantity(
+                          item.productId, item.size, item.quantity - 1);
+                      _revalidatePromo(
+                          promo, ref.read(cartProvider).subtotal);
+                    },
+                    onRemove: () {
+                      ref.read(cartProvider.notifier)
+                          .removeItem(item.productId, item.size);
+                      _revalidatePromo(
+                          promo, ref.read(cartProvider).subtotal);
+                    },
                   ),
                 ),
 
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                // Order summary card
-                _SummaryCard(cart: cart),
+                // ── Promo code field ──────────────────────────────────
+                _PromoField(
+                  controller: _promoController,
+                  promo: promo,
+                  onApply: () => _applyPromo(cart.subtotal),
+                  onRemove: _removePromo,
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Order summary ─────────────────────────────────────
+                _SummaryCard(
+                  subtotal: cart.subtotal,
+                  shipping: _shipping,
+                  discount: discount,
+                  promoCode: promo.result?.code,
+                ),
 
                 const SizedBox(height: 12),
 
                 // Clear cart link
                 Center(
                   child: GestureDetector(
-                    onTap: () => _confirmClear(context, ref),
+                    onTap: _confirmClear,
                     child: const Text(
                       'إفراغ السلة',
                       style: TextStyle(
@@ -198,22 +275,10 @@ class _CartBody extends ConsumerWidget {
           ),
 
           // ── Sticky checkout bar ─────────────────────────────────────────
-          _CheckoutBar(grandTotal: cart.subtotal + _SummaryCard.shipping),
+          _CheckoutBar(grandTotal: grandTotal),
         ],
       ),
     );
-  }
-
-  void _confirmClear(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _ClearConfirmSheet(),
-    ).then((confirmed) {
-      if (confirmed == true) {
-        ref.read(cartProvider.notifier).clearCart();
-      }
-    });
   }
 }
 
@@ -261,6 +326,277 @@ class _CartHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Promo code field
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PromoField extends StatelessWidget {
+  final TextEditingController controller;
+  final PromoState promo;
+  final VoidCallback onApply;
+  final VoidCallback onRemove;
+
+  const _PromoField({
+    required this.controller,
+    required this.promo,
+    required this.onApply,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // ── Applied: show green success chip instead of input ─────────────────
+    if (promo.isApplied) {
+      return _AppliedPromoChip(
+        result: promo.result!,
+        onRemove: onRemove,
+      );
+    }
+
+    final hasError = promo.hasError;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Input row
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: TbColors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hasError ? TbColors.pink : TbColors.line,
+              width: hasError ? 1.5 : 1.0,
+            ),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+          child: Row(
+            children: [
+              // Icon
+              Icon(
+                Icons.sell_outlined,
+                size: 18,
+                color: hasError ? TbColors.pink : TbColors.ink3,
+              ),
+              const SizedBox(width: 10),
+
+              // Text input — LTR because codes are ASCII uppercase
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  textDirection: TextDirection.ltr,
+                  textCapitalization: TextCapitalization.characters,
+                  style: const TextStyle(
+                    fontFamily: 'PlusJakartaSans',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: TbColors.ink,
+                    letterSpacing: 0.06,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'كود الخصم',
+                    hintStyle: TextStyle(
+                      fontFamily: TbFonts.arabic,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: TbColors.ink3,
+                      letterSpacing: 0,
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onSubmitted: (_) => onApply(),
+                ),
+              ),
+
+              // Apply button
+              _ApplyBtn(
+                loading: promo.isLoading,
+                onTap: onApply,
+              ),
+            ],
+          ),
+        ),
+
+        // Error message — animates in/out
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: hasError
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.error_outline_rounded,
+                          size: 14,
+                          color: TbColors.pink,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          promo.errorMessage!,
+                          style: const TextStyle(
+                            fontFamily: TbFonts.arabic,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: TbColors.pink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Applied promo chip
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _AppliedPromoChip extends StatelessWidget {
+  final PromoResult result;
+  final VoidCallback onRemove;
+
+  const _AppliedPromoChip({
+    required this.result,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: TbColors.mintSoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: TbColors.mint.withOpacity(0.45)),
+      ),
+      child: Row(
+        children: [
+          // Check circle
+          Container(
+            width: 32,
+            height: 32,
+            decoration: const BoxDecoration(
+              color: TbColors.mint,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: TbColors.ink,
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Code + savings text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  result.code,
+                  style: const TextStyle(
+                    fontFamily: 'PlusJakartaSans',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: TbColors.ink,
+                    letterSpacing: 0.06,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'وفّرت ${fmtYER(result.discount, 'ar')} 🎉',
+                  style: const TextStyle(
+                    fontFamily: TbFonts.arabic,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: TbColors.ink2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Remove ×
+          GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: TbColors.mint.withOpacity(0.22),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close_rounded,
+                size: 14,
+                color: TbColors.ink2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline Apply button
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ApplyBtn extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _ApplyBtn({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: loading ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: loading ? TbColors.line : TbColors.ink,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(TbColors.ink3),
+                ),
+              )
+            : const Text(
+                'تطبيق',
+                style: TextStyle(
+                  fontFamily: TbFonts.arabic,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: TbColors.cream,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Cart item tile
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -291,11 +627,8 @@ class _CartItemTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // ── Product image ───────────────────────────────────────────────
           _ProductThumb(imageUrl: item.imageUrl),
           const SizedBox(width: 12),
-
-          // ── Name + size + price + stepper ───────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,34 +648,29 @@ class _CartItemTile extends StatelessWidget {
                 const SizedBox(height: 3),
 
                 // Size badge
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: TbColors.bg,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: TbColors.line),
-                      ),
-                      child: Text(
-                        'المقاس: ${item.size}',
-                        style: const TextStyle(
-                          fontFamily: TbFonts.arabic,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: TbColors.ink2,
-                        ),
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: TbColors.bg,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: TbColors.line),
+                  ),
+                  child: Text(
+                    'المقاس: ${item.size}',
+                    style: const TextStyle(
+                      fontFamily: TbFonts.arabic,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: TbColors.ink2,
                     ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 8),
 
-                // Price row + stepper
+                // Price + stepper
                 Row(
                   children: [
-                    // Line subtotal (unit × qty)
                     Expanded(
                       child: Text(
                         fmtYER(item.lineTotal, 'ar'),
@@ -354,8 +682,6 @@ class _CartItemTile extends StatelessWidget {
                         ),
                       ),
                     ),
-
-                    // Qty stepper pill
                     _QtyPill(
                       qty: item.quantity,
                       onDecrement: onDecrement,
@@ -364,7 +690,7 @@ class _CartItemTile extends StatelessWidget {
                   ],
                 ),
 
-                // Unit price hint when qty > 1
+                // Unit price hint
                 if (item.quantity > 1) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -379,8 +705,6 @@ class _CartItemTile extends StatelessWidget {
               ],
             ),
           ),
-
-          // ── Remove button ───────────────────────────────────────────────
           const SizedBox(width: 8),
           _RemoveButton(onTap: onRemove),
         ],
@@ -408,35 +732,33 @@ class _ProductThumb extends StatelessWidget {
             ? CachedNetworkImage(
                 imageUrl: imageUrl!,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => const ColoredBox(
-                  color: TbColors.line,
-                ),
-                errorWidget: (_, __, ___) => _ThumbPlaceholder(),
+                placeholder: (_, __) =>
+                    const ColoredBox(color: TbColors.line),
+                errorWidget: (_, __, ___) => const _ThumbPlaceholder(),
               )
-            : _ThumbPlaceholder(),
+            : const _ThumbPlaceholder(),
       ),
     );
   }
 }
 
 class _ThumbPlaceholder extends StatelessWidget {
+  const _ThumbPlaceholder();
+
   @override
   Widget build(BuildContext context) {
     return const ColoredBox(
       color: TbColors.bg,
       child: Center(
-        child: Icon(
-          Icons.child_care_rounded,
-          color: TbColors.line,
-          size: 32,
-        ),
+        child:
+            Icon(Icons.child_care_rounded, color: TbColors.line, size: 32),
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Quantity pill — ( − qty + )
+// Quantity pill  ( − qty + )
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _QtyPill extends StatelessWidget {
@@ -462,7 +784,6 @@ class _QtyPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Decrement — becomes a trash icon at qty == 1
           _PillBtn(
             onTap: onDecrement,
             filled: false,
@@ -472,8 +793,6 @@ class _QtyPill extends StatelessWidget {
                 : const Icon(Icons.remove_rounded,
                     size: 14, color: TbColors.ink),
           ),
-
-          // Count
           SizedBox(
             width: 28,
             child: Center(
@@ -488,8 +807,6 @@ class _QtyPill extends StatelessWidget {
               ),
             ),
           ),
-
-          // Increment
           _PillBtn(
             onTap: onIncrement,
             filled: true,
@@ -507,11 +824,10 @@ class _PillBtn extends StatelessWidget {
   final VoidCallback onTap;
   final bool filled;
 
-  const _PillBtn({
-    required this.child,
-    required this.onTap,
-    required this.filled,
-  });
+  const _PillBtn(
+      {required this.child,
+      required this.onTap,
+      required this.filled});
 
   @override
   Widget build(BuildContext context) {
@@ -542,18 +858,10 @@ class _RemoveButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: const SizedBox(
         width: 32,
         height: 32,
-        decoration: BoxDecoration(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: const Icon(
-          Icons.close_rounded,
-          size: 18,
-          color: TbColors.ink3,
-        ),
+        child: Icon(Icons.close_rounded, size: 18, color: TbColors.ink3),
       ),
     );
   }
@@ -564,12 +872,20 @@ class _RemoveButton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummaryCard extends StatelessWidget {
-  final CartState cart;
-  const _SummaryCard({required this.cart});
+  final int subtotal;
+  final int shipping;
+  final int discount;
+  final String? promoCode;
 
-  static const int shipping = 1500; // flat YER — single source of truth
+  const _SummaryCard({
+    required this.subtotal,
+    required this.shipping,
+    required this.discount,
+    this.promoCode,
+  });
 
-  int get _total => cart.subtotal + shipping;
+  int get _total =>
+      (subtotal - discount + shipping).clamp(0, 999999999);
 
   @override
   Widget build(BuildContext context) {
@@ -584,17 +900,29 @@ class _SummaryCard extends StatelessWidget {
         children: [
           _SummaryRow(
             label: 'المجموع الفرعي',
-            value: fmtYER(cart.subtotal, 'ar'),
+            value: fmtYER(subtotal, 'ar'),
           ),
           const SizedBox(height: 8),
           _SummaryRow(
             label: 'التوصيل',
             value: fmtYER(shipping, 'ar'),
           ),
+
+          // Discount row — visible only when promo is applied
+          if (discount > 0) ...[
+            const SizedBox(height: 8),
+            _SummaryRow(
+              label: promoCode != null ? 'خصم ($promoCode)' : 'الخصم',
+              value: '- ${fmtYER(discount, 'ar')}',
+              valueColor: TbColors.mint,
+            ),
+          ],
+
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: Divider(color: TbColors.line, height: 1),
           ),
+
           _SummaryRow(
             label: 'الإجمالي',
             value: fmtYER(_total, 'ar'),
@@ -610,45 +938,48 @@ class _SummaryRow extends StatelessWidget {
   final String label;
   final String value;
   final bool bold;
+  final Color? valueColor;
 
   const _SummaryRow({
     required this.label,
     required this.value,
     this.bold = false,
+    this.valueColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle = TextStyle(
-      fontFamily: TbFonts.arabic,
-      fontSize: bold ? 16 : 14,
-      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
-      color: bold ? TbColors.ink : TbColors.ink2,
-    );
-    final valueStyle = TextStyle(
-      fontFamily: TbFonts.arabic,
-      fontSize: bold ? 20 : 14,
-      fontWeight: bold ? FontWeight.w800 : FontWeight.w700,
-      color: bold ? TbColors.ink : TbColors.ink,
-    );
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: labelStyle),
-        Text(value, style: valueStyle),
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: TbFonts.arabic,
+            fontSize: bold ? 16 : 14,
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            color: bold ? TbColors.ink : TbColors.ink2,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontFamily: TbFonts.arabic,
+            fontSize: bold ? 20 : 14,
+            fontWeight: bold ? FontWeight.w800 : FontWeight.w700,
+            color: valueColor ?? TbColors.ink,
+          ),
+        ),
       ],
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Checkout bar (sticky bottom)
+// Checkout bar (sticky)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _CheckoutBar extends StatelessWidget {
-  /// Grand total already includes shipping — pass [CartState.subtotal] + shipping
-  /// from [_SummaryCard._total].
   final int grandTotal;
   const _CheckoutBar({required this.grandTotal});
 
@@ -660,15 +991,17 @@ class _CheckoutBar extends StatelessWidget {
         border: Border(top: BorderSide(color: TbColors.line)),
       ),
       padding: EdgeInsets.fromLTRB(
-        16,
-        12,
-        16,
+        16, 12, 16,
         12 + MediaQuery.of(context).padding.bottom,
       ),
       child: AppButton(
         label: 'إتمام الطلب · ${fmtYER(grandTotal, 'ar')}',
         variant: AppButtonVariant.accent,
-        icon: const Icon(Icons.arrow_back_rounded, size: 18, color: Colors.white),
+        icon: const Icon(
+          Icons.arrow_back_rounded,
+          size: 18,
+          color: Colors.white,
+        ),
         onTap: () => context.go('/checkout'),
       ),
     );
@@ -676,7 +1009,7 @@ class _CheckoutBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Clear-cart confirmation bottom sheet
+// Clear-cart confirmation sheet
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ClearConfirmSheet extends StatelessWidget {
@@ -690,15 +1023,11 @@ class _ClearConfirmSheet extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.of(context).padding.bottom,
-      ),
+          24, 24, 24, 24 + MediaQuery.of(context).padding.bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
+          // Handle bar
           Container(
             width: 40,
             height: 4,
@@ -709,7 +1038,6 @@ class _ClearConfirmSheet extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
-          // Icon
           Container(
             width: 56,
             height: 56,
@@ -717,11 +1045,8 @@ class _ClearConfirmSheet extends StatelessWidget {
               color: TbColors.pink.withOpacity(0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.delete_outline_rounded,
-              color: TbColors.pink,
-              size: 28,
-            ),
+            child: const Icon(Icons.delete_outline_rounded,
+                color: TbColors.pink, size: 28),
           ),
           const SizedBox(height: 16),
 
@@ -737,20 +1062,19 @@ class _ClearConfirmSheet extends StatelessWidget {
           const SizedBox(height: 8),
 
           const Text(
-            'سيتم حذف جميع المنتجات من سلتك. هذا الإجراء لا يمكن التراجع عنه.',
+            'سيتم حذف جميع المنتجات من سلتك.\nهذا الإجراء لا يمكن التراجع عنه.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: TbFonts.arabic,
               fontSize: 14,
               color: TbColors.ink2,
-              height: 1.5,
+              height: 1.55,
             ),
           ),
           const SizedBox(height: 24),
 
           Row(
             children: [
-              // Cancel
               Expanded(
                 child: AppButton(
                   label: 'إلغاء',
@@ -759,8 +1083,6 @@ class _ClearConfirmSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-
-              // Confirm
               Expanded(
                 child: AppButton(
                   label: 'إفراغ',
