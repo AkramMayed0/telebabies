@@ -1,11 +1,14 @@
 // lib/presentation/screens/checkout/checkout_screen.dart
 // REPLACE: my_app/lib/presentation/screens/checkout/checkout_screen.dart
 
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:my_app/core/utils/format.dart';
 import 'package:my_app/models/cart_item.dart';
@@ -127,8 +130,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   _PaymentMethod? _selectedPayment;
   String? _paymentError;
 
-  // ── Step 3 — Submitting ───────────────────────────────────────────────────
+  // ── Step 3 — Receipt & submitting ────────────────────────────────────────
+  XFile? _receiptFile;       // picked image
+  String? _receiptError;     // validation message
   bool _submitting = false;
+
+  // Reusable ImagePicker instance
+  final _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -168,6 +176,35 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     return err == null;
   }
 
+  bool _validateStep3() {
+    final err = _receiptFile == null ? 'يرجى رفع صورة إيصال الدفع' : null;
+    setState(() => _receiptError = err);
+    return err == null;
+  }
+
+  // ── Image picker ──────────────────────────────────────────────────────────
+
+  Future<void> _pickReceipt(ImageSource source) async {
+    try {
+      final file = await _picker.pickImage(
+        source:        source,
+        imageQuality:  85,
+        maxWidth:      1920,
+        maxHeight:     1920,
+      );
+      if (file != null) {
+        setState(() {
+          _receiptFile  = file;
+          _receiptError = null; // clear error immediately on pick
+        });
+      }
+    } catch (_) {
+      // Permission denied or picker cancelled — leave state unchanged
+    }
+  }
+
+  void _removeReceipt() => setState(() => _receiptFile = null);
+
   // ── Navigation ────────────────────────────────────────────────────────────
 
   void _onNext() {
@@ -176,7 +213,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     } else if (_step == 2) {
       if (_validateStep2()) setState(() => _step = 3);
     } else {
-      _submitOrder();
+      if (_validateStep3()) _submitOrder();
     }
   }
 
@@ -279,15 +316,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                               }),
                             ),
                         _ => _SummaryStep(
-                              cart:       cart,
-                              promo:      promo,
-                              discount:   discount,
-                              grandTotal: grandTotal,
-                              name:       _nameCtrl.text.trim(),
-                              phone:      _phoneCtrl.text.trim(),
-                              city:       _selectedCity?.ar ?? '',
-                              address:    _addressCtrl.text.trim(),
-                              payment:    _selectedPayment!,
+                              cart:          cart,
+                              promo:         promo,
+                              discount:      discount,
+                              grandTotal:    grandTotal,
+                              name:          _nameCtrl.text.trim(),
+                              phone:         _phoneCtrl.text.trim(),
+                              city:          _selectedCity?.ar ?? '',
+                              address:       _addressCtrl.text.trim(),
+                              payment:       _selectedPayment!,
+                              receiptFile:   _receiptFile,
+                              receiptError:  _receiptError,
+                              onPickGallery: () =>
+                                  _pickReceipt(ImageSource.gallery),
+                              onPickCamera:  () =>
+                                  _pickReceipt(ImageSource.camera),
+                              onRemoveReceipt: _removeReceipt,
                             ),
                       },
                     ),
@@ -1003,6 +1047,12 @@ class _SummaryStep extends StatelessWidget {
   final String city;
   final String address;
   final _PaymentMethod payment;
+  // Receipt
+  final XFile? receiptFile;
+  final String? receiptError;
+  final VoidCallback onPickGallery;
+  final VoidCallback onPickCamera;
+  final VoidCallback onRemoveReceipt;
 
   const _SummaryStep({
     required this.cart,
@@ -1014,6 +1064,11 @@ class _SummaryStep extends StatelessWidget {
     required this.city,
     required this.address,
     required this.payment,
+    required this.receiptFile,
+    required this.receiptError,
+    required this.onPickGallery,
+    required this.onPickCamera,
+    required this.onRemoveReceipt,
   });
 
   @override
@@ -1142,8 +1197,7 @@ class _SummaryStep extends StatelessWidget {
           decoration: BoxDecoration(
             color: TbColors.mintSoft,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-                color: TbColors.mint.withOpacity(0.4)),
+            border: Border.all(color: TbColors.mint.withOpacity(0.4)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1152,9 +1206,9 @@ class _SummaryStep extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'حوّل مبلغ ${fmtYER(grandTotal, 'ar')} إلى حساب '
+                  'حوّل مبلغ ${fmtYER(grandTotal, 'ar')} إلى '
                   '${payment.ar} (${payment.account}) '
-                  'ثم اضغط "تأكيد الطلب". سيُطلب منك رفع الإيصال بعد التأكيد.',
+                  'ثم ارفع صورة إيصال التحويل أدناه.',
                   style: const TextStyle(
                     fontFamily: TbFonts.arabic,
                     fontSize: 13,
@@ -1166,13 +1220,359 @@ class _SummaryStep extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+
+        // ── Receipt picker ─────────────────────────────────────────────
+        _ReceiptPicker(
+          file:         receiptFile,
+          error:        receiptError,
+          onPickGallery: onPickGallery,
+          onPickCamera:  onPickCamera,
+          onRemove:      onRemoveReceipt,
+        ),
         const SizedBox(height: 8),
       ],
     );
   }
 }
 
-// ── Small widgets used inside Step 3 ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Receipt image picker
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReceiptPicker extends StatelessWidget {
+  final XFile? file;
+  final String? error;
+  final VoidCallback onPickGallery;
+  final VoidCallback onPickCamera;
+  final VoidCallback onRemove;
+
+  const _ReceiptPicker({
+    required this.file,
+    required this.error,
+    required this.onPickGallery,
+    required this.onPickCamera,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = error != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Section label ────────────────────────────────────────────
+        _SectionLabel(
+          label: 'إيصال الدفع',
+          error: hasError ? error : null,
+        ),
+        const SizedBox(height: 10),
+
+        // ── Main zone: empty upload area OR preview ──────────────────
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve:  Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: file == null
+              ? _UploadZone(
+                  key: const ValueKey('zone'),
+                  hasError: hasError,
+                  onPickGallery: onPickGallery,
+                  onPickCamera:  onPickCamera,
+                )
+              : _PreviewTile(
+                  key: const ValueKey('preview'),
+                  file:     file!,
+                  onRemove: onRemove,
+                  onReplace: onPickGallery,
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Empty upload zone ─────────────────────────────────────────────────────────
+
+class _UploadZone extends StatelessWidget {
+  final bool hasError;
+  final VoidCallback onPickGallery;
+  final VoidCallback onPickCamera;
+
+  const _UploadZone({
+    super.key,
+    required this.hasError,
+    required this.onPickGallery,
+    required this.onPickCamera,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Dashed drop-target area
+        GestureDetector(
+          onTap: onPickGallery,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: double.infinity,
+            height: 148,
+            decoration: BoxDecoration(
+              color: hasError
+                  ? TbColors.pink.withOpacity(0.04)
+                  : TbColors.card,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: hasError
+                    ? TbColors.pink.withOpacity(0.55)
+                    : TbColors.line,
+                width: 1.5,
+                // Dashed via custom painter below
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: hasError
+                        ? TbColors.pink.withOpacity(0.10)
+                        : TbColors.yellow,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.camera_alt_outlined,
+                    size: 26,
+                    color: hasError ? TbColors.pink : TbColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'اضغط لرفع صورة الإيصال',
+                  style: TextStyle(
+                    fontFamily: TbFonts.arabic,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: hasError ? TbColors.pink : TbColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'JPG أو PNG — حتى ١٠ ميجابايت',
+                  style: TextStyle(
+                    fontFamily: TbFonts.arabic,
+                    fontSize: 12,
+                    color: TbColors.ink3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Source buttons row
+        Row(
+          children: [
+            Expanded(
+              child: _SourceBtn(
+                icon:  Icons.photo_library_outlined,
+                label: 'المعرض',
+                onTap: onPickGallery,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SourceBtn(
+                icon:  Icons.camera_alt_outlined,
+                label: 'الكاميرا',
+                onTap: onPickCamera,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SourceBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SourceBtn({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: TbColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: TbColors.line),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: TbColors.ink2),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: TbFonts.arabic,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: TbColors.ink2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Preview tile (after image selected) ──────────────────────────────────────
+
+class _PreviewTile extends StatelessWidget {
+  final XFile file;
+  final VoidCallback onRemove;
+  final VoidCallback onReplace;
+
+  const _PreviewTile({
+    super.key,
+    required this.file,
+    required this.onRemove,
+    required this.onReplace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: TbColors.mintSoft,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: TbColors.mint.withOpacity(0.45)),
+      ),
+      child: Row(
+        children: [
+          // Thumbnail
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              width: 72,
+              height: 72,
+              child: Image.file(
+                File(file.path),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // File info + actions
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Success badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: TbColors.mint,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.check_rounded,
+                          size: 12, color: TbColors.ink),
+                      SizedBox(width: 4),
+                      Text(
+                        'تم رفع الإيصال',
+                        style: TextStyle(
+                          fontFamily: TbFonts.arabic,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: TbColors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                // File name (truncated)
+                Text(
+                  file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'PlusJakartaSans',
+                    fontSize: 12,
+                    color: TbColors.ink2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Replace / Remove row
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: onReplace,
+                      child: const Text(
+                        'استبدال',
+                        style: TextStyle(
+                          fontFamily: TbFonts.arabic,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: TbColors.ink,
+                          decoration: TextDecoration.underline,
+                          decorationColor: TbColors.ink,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    GestureDetector(
+                      onTap: onRemove,
+                      child: const Text(
+                        'حذف',
+                        style: TextStyle(
+                          fontFamily: TbFonts.arabic,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: TbColors.pink,
+                          decoration: TextDecoration.underline,
+                          decorationColor: TbColors.pink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section card wrapper
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _SectionCard extends StatelessWidget {
   final String title;
